@@ -15,45 +15,11 @@
 #include <algorithm>
 #include <random>
 #include <unordered_map>
+#include "String_min_partiion/functions.hpp"
 
 using namespace boost;
 using namespace std;
 
-struct variable_index_t{
-  
-  size_t k1, k2, t_length, n; //n is the size of input string
-  void set(const size_t& pk1, const size_t& pk2, const size_t& pt_length, const size_t& pn) {
-    k1 = pk1; k2 = pk2; t_length = pt_length; n = pn;
-  }
-  variable_index_t() {};
-  variable_index_t(const variable_index_t& vit) {
-    k1 = vit.k1; k2 = vit.k2; t_length = vit.t_length; n = vit.n;
-  }
-  variable_index_t(const size_t& pk1, const size_t& pk2, const size_t& pt_length, const size_t& pn) {
-    k1 = pk1; k2 = pk2; t_length = pt_length; n = pn;
-  }
-  size_t get_index()const{
-    return k1 + n + k2 + 2 * n + t_length; //this is index of variable, which correspnds to level
-  };
-};
-inline bool operator==(const variable_index_t& lhs, const variable_index_t& rhs) {
-  return lhs.get_index() == rhs.get_index();
-};
-inline bool operator<(const variable_index_t& lhs, const variable_index_t& rhs) {
-  return lhs.get_index() < rhs.get_index();
-};
-inline bool operator>(const variable_index_t& lhs, const variable_index_t& rhs) {
-  return lhs.get_index() > rhs.get_index();
-};
-inline bool operator<=(const variable_index_t& lhs, const variable_index_t& rhs) {
-  return lhs.get_index() <= rhs.get_index();
-};
-inline bool operator>=(const variable_index_t& lhs, const variable_index_t& rhs) {
-  return lhs.get_index() >= rhs.get_index();
-};
-inline bool operator!=(const variable_index_t& lhs, const variable_index_t& rhs) {
-  return lhs.get_index() != rhs.get_index();
-};
 
 //state of inner node, two incidence strings
 struct state_T{
@@ -87,7 +53,12 @@ struct state_T{
       shortest_path=0;
       level = 0;
     }
-    state_T(){};
+    state_T(){
+      covered_s1.clear();
+      covered_s2.clear();
+      shortest_path = 0;
+      level = 0;
+    };
     void print(){
       std::cout << "State: l: "<< level << " sp: " << shortest_path << "\n s1: ";
       for (bool b : covered_s1){
@@ -382,7 +353,7 @@ size_t min_cover(const vector<size_t>& input1, const vector<size_t>& input2, con
   myBDD[0].state = state_T(input_len);
   vector<size_t> current_layer;
   current_layer.push_back(0);
-  vector<variable_index_t> variables;
+  variablesDB_t variables;
   for (size_t k1 = 0; k1<input_len; ++k1){
     for (size_t k2 = 0; k2<input_len; ++k2){
       cout << "Position " << k1 << ", " << k2 << " with block: ";
@@ -390,11 +361,14 @@ size_t min_cover(const vector<size_t>& input1, const vector<size_t>& input2, con
         if (input1[k1 + t_len] != input2[k2 + t_len]) { break; }
           //this is a valid block (k1,k2,t_len+1)
           cout << input1[k1+t_len];
-          variables.push_back(variable_index_t(k1,k2,t_len,input.size());
-          process_layer(myBDD, current_layer, k1, k2, t_len, restrict_width);
+          variables.append_variable(variable_index_t(k1,k2,t_len,input1.size()));
+          //process_layer(myBDD, current_layer, k1, k2, t_len, restrict_width);
         }
       cout << " layer_size: "<< current_layer.size() << endl;
     }
+  }
+  for (size_t i = 0; i < variables.size(); ++i) {
+    process_layer(myBDD, current_layer, variables[i], restrict_width);
   }
   //delete recursively all invalid vertices and unify others t
   //print_BDD(myBDD);  
