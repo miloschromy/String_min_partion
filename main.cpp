@@ -7,7 +7,6 @@
 #include <boost/graph/graphviz.hpp>
 #include <boost/graph/filtered_graph.hpp>
 #include <boost/graph/copy.hpp>
-#include <boost/container_hash/hash.hpp>
 #include <cassert>
 #include <vector>
 #include <map>
@@ -20,86 +19,7 @@
 using namespace boost;
 using namespace std;
 
-
-//state of inner node, two incidence strings
-struct state_T{
-    vector<bool> covered_s1,covered_s2;
-    size_t level;
-    size_t shortest_path;
-    variable_index_t decision_index;
-    state_T(const state_T& init){
-      covered_s1=init.covered_s1;
-      covered_s2=init.covered_s2;
-      level=init.level;
-      shortest_path=init.shortest_path;
-    }
-    state_T(const state_T& init, const size_t& l){
-      covered_s1=init.covered_s1;
-      covered_s2=init.covered_s2;
-      shortest_path=init.shortest_path;
-      level=l;
-    }
-    state_T(const state_T& init, const size_t& l, const size_t& sp){
-      covered_s1 = init.covered_s1;
-      covered_s2 = init.covered_s2;
-      level = l;
-      shortest_path = sp;
-    }
-    state_T(const size_t& length){
-      covered_s1.clear();
-      covered_s2.clear();
-      covered_s1.resize(length,1);
-      covered_s2.resize(length,1);
-      shortest_path=0;
-      level = 0;
-    }
-    state_T(){
-      covered_s1.clear();
-      covered_s2.clear();
-      shortest_path = 0;
-      level = 0;
-    };
-    void print(){
-      std::cout << "State: l: "<< level << " sp: " << shortest_path << "\n s1: ";
-      for (bool b : covered_s1){
-        std::cout << b;
-      }
-      std::cout << "\n s2: ";
-      for (bool b : covered_s2){
-        std::cout << b;
-      }
-      std::cout << std::endl;
-    }
-};
-inline bool operator==(const state_T& lhs, const state_T& rhs) {
-  return (lhs.covered_s1 == rhs.covered_s1 && lhs.covered_s2 == rhs.covered_s2);
-};
-template<> struct std::hash<state_T>
-    {
-        std::size_t operator()(state_T const& s) const noexcept
-        {
-          size_t seed = 0,
-          h1 = std::hash<vector<bool>>{}(s.covered_s1),
-          h2 = std::hash<vector<bool>>{}(s.covered_s2);
-          hash_combine(seed, h1);
-          hash_combine(seed, h2);
-          return seed; // or use boost::hash_combine
-        }
-    };
-
-ostream& operator<<(ostream& os, const state_T& st){
-    os << "l: " << st.level << "/sp: " << st.shortest_path << "/s1: ";
-    if (st.covered_s1.size() == 0 || st.covered_s2.size() ==0){ cout << "error"; return os;}
-    for (bool b : st.covered_s1){
-        os << b;
-      }
-      os << "/s2: ";
-      for (bool b : st.covered_s2){
-        os << b;
-      }
-    return os;
-};
-struct VP{
+struct VP {
   state_T state;
 };
 
@@ -189,34 +109,47 @@ bool check_input(const vector<size_t>& input1, const vector<size_t>& input2){
   return 0;
 };
 
-bool state_is_covered(const state_T& state){
-  //cout << "Final state ";
-  //for (bool b : state.covered_s1){
-  //  cout << b;
-  //}
-  //cout << " in level " << state.level << " and the pathlength " << state.shortest_path << endl;
+/*bool state_is_covered(const state_T& state){
   for (bool b : state.covered_s1){ //we have to check just one string as the other is already covered
     if (b) return 0;
   }
   return 1;
+}*/
+
+
+
+
+void state_from_free_vars(state_T& result, variablesDB_t& variables) {
+  result = state_T(variables[0].n);
+  for (size_t j = variables.current_variable; j < variables.size(); ++j) {
+    for (size_t i = 0; i <= variables[j].t_length; ++i) {
+      result.covered_s1[variables[j].k1 + i] = 0;
+      result.covered_s2[variables[j].k2 + i] = 0;
+    }
+  }
+}
+
+void and_states(state_T& s1, state_T& s2) {
+  for (size_t i = 0; i < s1.covered_s1.size(); ++i) {
+    s1.covered_s1[i] = s1.covered_s1[i] && s2.covered_s1[i];
+    s1.covered_s2[i] = s1.covered_s2[i] && s2.covered_s2[i];
+  }
 }
 
 
-
-
 //returns new half of state corresponding to updatet target, which is an icidence vector, wherer target[i]=0 means it is already covered. clears target if it finds colision
-bool cover_positions(state_T& target, const size_t& k1, const size_t& k2, const size_t& length){
-  if (max<int>(k1,k2)+length >= target.covered_s2.size()){ //bound check
+bool cover_positions(state_T& target, const variable_index_t& var_state){ //const size_t& k1, const size_t& k2, const size_t& length){
+  if (max<int>(var_state.k1, var_state.k2)+ var_state.t_length >= target.covered_s2.size()){ //bound check
     target.covered_s1.clear(); //can't be covered so retreat
       return 0;
   }
-  for (size_t i = 0; i<=length; ++i){
-    if (!target.covered_s1[k1+i] || !target.covered_s2[k2+i]){
+  for (size_t i = 0; i<= var_state.t_length; ++i){
+    if (!target.covered_s1[var_state.k1+i] || !target.covered_s2[var_state.k2+i]){
       target.covered_s1.clear(); //can't be covered so retreat
       return 0;
     }
-    target.covered_s1[k1+i]=0;
-    target.covered_s2[k2+i]=0;
+    target.covered_s1[var_state.k1+i]=0;
+    target.covered_s2[var_state.k2+i]=0;
   }
   return 1;
 };
@@ -237,7 +170,7 @@ void add_decision_edge_upadate_node(BDD_T& myBDD, const size_t& decision_node, s
 };
 
 
-void merge_states(state_T& s1, state_T& s2) {
+void or_states(state_T& s1, state_T& s2) {
   for (size_t i = 0; i < s1.covered_s1.size(); ++i) {
     s1.covered_s1[i] = s1.covered_s1[i] || s2.covered_s1[i];
     s1.covered_s2[i] = s1.covered_s2[i] || s2.covered_s2[i];
@@ -264,7 +197,7 @@ void merge_edges(BDD_T& myBDD, const size_t& v1, const size_t& v2) {
 
 }
 void merge_nodes(BDD_T& myBDD, const size_t& v1, const size_t& v2) {
-  merge_states(myBDD[v1].state, myBDD[v2].state);
+  or_states(myBDD[v1].state, myBDD[v2].state);
   merge_edges(myBDD, v1, v2);
 };
 
@@ -284,20 +217,33 @@ void relax_layer(BDD_T& myBDD, vector<size_t>& current_layer, const size_t& rest
 
 };
 
-void process_layer(BDD_T& myBDD, vector<size_t>& current_layer, const size_t& k1, const size_t& k2, const size_t& t_len, const size_t& restrict_width){
+void restrict_layer(BDD_T& myBDD, vector<size_t>& current_layer, const size_t& restrict_width) {
+  std::sort(current_layer.begin(), current_layer.end(), [&myBDD](const size_t& x, const size_t& y) { return  myBDD[x].state.shortest_path < myBDD[y].state.shortest_path; });
+  //current_layer.erase(current_layer.begin() + restrict_width / 2, current_layer.end() - restrict_width / 2);
+  current_layer.resize(restrict_width);
+}
+
+void process_layer(BDD_T& myBDD, vector<size_t>& current_layer, variablesDB_t& variables, const size_t& restrict_width){
   std::unordered_map<state_T, size_t> new_layer_hashed;
   std::unordered_map<state_T, size_t>::iterator search_it;
-  state_T state1, state0;
+  state_T state1, state0, can_be_covered_state;
   bool one_is_valid;
   size_t to_match;
-  //cout << "k1/k2/t_len: " << k1 <<"/" << k2 <<"/" << t_len << endl;
+  state_from_free_vars(can_be_covered_state, variables); //cover all positins which can be covered by free variables
+
   for (size_t procesed_node : current_layer){ // each node from current layer
-    myBDD[procesed_node].state.decision_index.set(k1, k2, t_len, myBDD[procesed_node].state.covered_s1.size());
-    state0 = myBDD[procesed_node].state;; //state for decision 0
+    //check wheter state can be covered from procesed node
+    myBDD[procesed_node].state.decision_index = variables.current_variable_get();
+    state0 = myBDD[procesed_node].state;
+    state1 = can_be_covered_state;
+    and_states(state0, state1);
+    if (state0.uncovovered_positions_count()) { continue; } //we have constant subtree
+
+    state0 = myBDD[procesed_node].state; //state for decision 0
     state0.level++;
     state1 = myBDD[procesed_node].state; //state for decision 1
     state1.level++;
-    one_is_valid = cover_positions(state1, k1, k2, t_len); //if return false, than we have to unify procesed_node with a node x_i=0 
+    one_is_valid = cover_positions(state1, variables.current_variable_get()); //if return false, than we have to unify procesed_node with a node x_i=0 
     search_it = new_layer_hashed.find(state0);
     
     if (search_it != new_layer_hashed.end()){
@@ -324,6 +270,9 @@ void process_layer(BDD_T& myBDD, vector<size_t>& current_layer, const size_t& k1
   current_layer.clear();
   for (const pair<state_T, size_t>& pa: new_layer_hashed){
     current_layer.push_back(pa.second);
+    if (restrict_width && restrict_width < current_layer.size()) {
+      restrict_layer(myBDD, current_layer, restrict_width);
+    }
   }
 };
 
@@ -334,7 +283,7 @@ void unify_last_layer(BDD_T& myBDD, vector<size_t> last_layer){ //in last layer 
   size_t terminal = 0, best = myBDD[last_layer[0]].state.covered_s1.size();
   for (const size_t& node : last_layer){
     
-    if (state_is_covered(myBDD[node].state) && best > myBDD[node].state.shortest_path){
+    if ((myBDD[node].state.uncovovered_positions_count() == 0) && best > myBDD[node].state.shortest_path){
         cout << "Final node " << node << endl;
       terminal = node;
       
@@ -354,21 +303,30 @@ size_t min_cover(const vector<size_t>& input1, const vector<size_t>& input2, con
   vector<size_t> current_layer;
   current_layer.push_back(0);
   variablesDB_t variables;
+  variables.current_variable_reset();
   for (size_t k1 = 0; k1<input_len; ++k1){
     for (size_t k2 = 0; k2<input_len; ++k2){
-      cout << "Position " << k1 << ", " << k2 << " with block: ";
+      
       for (size_t t_len = 0 ; t_len < input_len - max<int>(k1,k2); ++t_len){
         if (input1[k1 + t_len] != input2[k2 + t_len]) { break; }
           //this is a valid block (k1,k2,t_len+1)
-          cout << input1[k1+t_len];
           variables.append_variable(variable_index_t(k1,k2,t_len,input1.size()));
           //process_layer(myBDD, current_layer, k1, k2, t_len, restrict_width);
         }
-      cout << " layer_size: "<< current_layer.size() << endl;
+      
     }
   }
-  for (size_t i = 0; i < variables.size(); ++i) {
-    process_layer(myBDD, current_layer, variables[i], restrict_width);
+  
+  while (variables.current_variable_good()) {
+    cout << "Position " << variables.current_variable_get().k1 << ", " 
+                        << variables.current_variable_get().k2 << " with block of length " 
+                        << variables.current_variable_get().t_length << " and letter "
+                        << input1[variables.current_variable_get().k1 + variables.current_variable_get().t_length] << " frontier size " 
+                        << current_layer.size() << endl;
+    process_layer(myBDD, current_layer, variables, restrict_width);
+    
+    variables.current_variable_next();
+    
   }
   //delete recursively all invalid vertices and unify others t
   //print_BDD(myBDD);  
@@ -419,21 +377,21 @@ bool read_1_sequence(vector<size_t>& input1, ifstream& input_stream){
 
 int main(int argc, char ** argv)
 {
-    vector<size_t> input1={3,4,1,2},
+    vector<size_t> input1={1,2,3,4},
          input2={1,2,3,4};
          //ababbbabbab
   size_t input_size = input1.size();
-  /*std::ifstream input_stream(".\\input\\random");
+  std::ifstream input_stream(".\\input\\random");
   //while (input_stream.good()){
     read_1_sequence(input1, input_stream);
-    input1 = vector<size_t>(input1.begin(), input1.begin()+10);
+    input1 = vector<size_t>(input1.begin(), input1.begin()+60);
     input2 = input1;
     shuffle(input2.begin(),input2.end(), default_random_engine{});
     cout << (input1 == input2) << endl;
   //}
   input_stream.close();
-  */
-  min_cover(input1,input2);
+  
+  min_cover(input1,input2,3000);
   
   return 0;
 }
