@@ -107,7 +107,7 @@ struct state_T {
     shortest_path = 0;
     level = 0;
   };
-  void print() {
+  void print() const {
     std::cout << "State: l: " << level << " sp: " << shortest_path << "\n s1: ";
     for (bool b : covered_s1) {
       std::cout << b;
@@ -118,10 +118,13 @@ struct state_T {
     }
     std::cout << std::endl;
   }
-  size_t uncovovered_positions_count() {
+  size_t uncovovered_positions_count() const {
     size_t ret = 0;
-    for (bool i : covered_s1) { ret += i; }
+    for (const bool& i : covered_s1) { ret += i; }
     return ret;
+  }
+  size_t get_shortest_path() const {
+    return shortest_path + uncovovered_positions_count();
   }
 };
 inline bool operator==(const state_T& lhs, const state_T& rhs) {

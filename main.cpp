@@ -227,11 +227,11 @@ void remove_vertex_by_switch_and_del(BDD_T& myBDD, const size_t& to_remove) {
 
 
 //makes or of the states (so we will cover all positions and we can use more variables to cover
-void merge_nodes(BDD_T& myBDD, const size_t& v1, const size_t& v2) {
-  or_states(myBDD[v1].state, myBDD[v2].state);
-  myBDD[v1].state.shortest_path = min<size_t>(myBDD[v1].state.shortest_path, myBDD[v2].state.shortest_path);
-  merge_edges(myBDD, v1, v2);
-  remove_vertex_by_switch_and_del(myBDD, v2);
+void merge_nodes(BDD_T& myBDD, state_T& v1, state_T& v2) {
+  and_states(v1, v2);
+  v1.shortest_path = min<size_t>(v2.shortest_path, v2.shortest_path);
+  //merge_edges(myBDD, v1, v2);
+  //remove_vertex_by_switch_and_del(myBDD, v2);
 };
 
 
@@ -246,16 +246,21 @@ void merge_clear_update(BDD_T& myBDD, std::unordered_map<state_T, size_t>& new_l
   
 }
 
-void relax_layer(BDD_T& myBDD, vector<size_t>& current_layer, const restriction_t& restrictions) {
+void relax_layer(BDD_T& myBDD, vector<state_T>& current_layer, const restriction_t& restrictions) {
   //sort them to use them in some order...shortest are first so we hopefully wont touch them
   //std::sort(current_layer.begin(), current_layer.end());
   //for (int i = 0; i < current_layer.size() - 1; ++i) { if (current_layer[i] == current_layer[i + 1]) cout << "PYCOOOO\n"; }
-  std::sort(current_layer.begin(), current_layer.end(), [&myBDD](const size_t& x, const size_t& y) { return  myBDD[x].state.shortest_path < myBDD[y].state.shortest_path; });
+  
+  //std::sort(current_layer.begin(), current_layer.end(), [&myBDD, &restrictions](const state_T& x, const state_T& y) { return x.shortest_path > y.shortest_path; });
+  std::nth_element(current_layer.begin(), current_layer.begin() + restrictions.max_level_width, current_layer.end(), [&restrictions](const state_T& x, const state_T& y) {
+    if (x.shortest_path > y.shortest_path) return x.uncovovered_positions_count() < y.uncovovered_positions_count();
+    return x.shortest_path > y.shortest_path; });
+
   while (current_layer.size() > restrictions.max_level_width) {
     //cout << "pop " << current_layer.back() << " " << num_vertices(myBDD) <<  endl;
-    size_t h_dist_best = myBDD[0].state.covered_s2.size(), h_dist_cur, index_of_best=0;
-    for (int i = current_layer.size() - 2; i >=0 ; --i) {
-      h_dist_cur = h_dist_states(myBDD[current_layer[i]].state, myBDD[current_layer.back()].state);
+    size_t h_dist_best = current_layer[0].covered_s2.size(), h_dist_cur, index_of_best=0;
+    for (int i = restrictions.max_level_width-1; i >=0 ; --i) {
+      h_dist_cur = h_dist_states(current_layer[i], current_layer.back());
       if (h_dist_cur < h_dist_best) {
         h_dist_best = h_dist_cur;
         index_of_best = i;
@@ -263,73 +268,86 @@ void relax_layer(BDD_T& myBDD, vector<size_t>& current_layer, const restriction_
     }
     //cout << index_of_best << "=?=" << current_layer.size() - 1 << "/" << current_layer[index_of_best] << "=?=" << current_layer.back() << endl;
     merge_nodes(myBDD, current_layer[index_of_best], current_layer.back());
-    for (int i = 0; i < current_layer.size(); ++i) {
+    /*for (int i = 0; i < current_layer.size(); ++i) {
       if (current_layer[i] == num_vertices(myBDD)) {
         current_layer[i] = current_layer.back();
       }
-    }
+    }*/
     //clear_vertex(current_layer.back(), myBDD);
     //cout << "poped " << current_layer.back() << endl;
     current_layer.pop_back();
   }
 };
 
-void restrict_layer(BDD_T& myBDD, vector<size_t>& current_layer, const restriction_t& restrictions) {
-  std::sort(current_layer.begin(), current_layer.end(), [&myBDD, &restrictions](const size_t& x, const size_t& y) { return myBDD[x].state.shortest_path < myBDD[y].state.shortest_path;});
+void restrict_layer(BDD_T& myBDD, vector<state_T>& current_layer, const restriction_t& restrictions) {
+  if (restrictions.max_level_width >= current_layer.size()) return;
   
+  //std::sort(current_layer.begin(), current_layer.end(), [&myBDD, &restrictions](const state_T& x, const state_T& y) { return x.shortest_path > y.shortest_path;});
+  std::nth_element(current_layer.begin(), current_layer.begin() + restrictions.max_level_width, current_layer.end(), [&restrictions](const state_T& x, const state_T& y) { 
+    if (x.shortest_path > y.shortest_path) return x.uncovovered_positions_count() < y.uncovovered_positions_count();
+    return x.shortest_path > y.shortest_path; });
   //std::sort(current_layer.begin(), current_layer.end(), [&myBDD](const size_t& x, const size_t& y) { return  myBDD[x].state.uncovovered_positions_count() < myBDD[y].state.uncovovered_positions_count(); });
 
   //current_layer.erase(current_layer.begin() + restrict_width / 2, current_layer.end() - restrict_width / 2);
   current_layer.resize(restrictions.max_level_width);
 }
 
-void process_layer(BDD_T& myBDD, vector<size_t>& current_layer, variablesDB_t& variables, const restriction_t& restrictions){
+void process_layer(BDD_T& myBDD, vector<state_T>& current_layer, variablesDB_t& variables, const restriction_t& restrictions){
   std::unordered_map<state_T, size_t> new_layer_hashed;
   std::unordered_map<state_T, size_t>::iterator search_it;
   state_T state1, state0, can_be_covered_state;
   bool one_is_valid;
   size_t to_match;
-  state_from_free_vars(can_be_covered_state, variables); //cover all positins which can be covered by free variables
+  //state_from_free_vars(can_be_covered_state, variables); //cover all positins which can be covered by free variables
 
-  for (size_t procesed_node : current_layer){ // each node from current layer
+  for (state_T& procesed_node : current_layer){ // each node from current layer
     //check wheter state can be covered from procesed node
-    myBDD[procesed_node].state.decision_index = variables.current_variable_get();
-    state0 = myBDD[procesed_node].state;
-    state1 = can_be_covered_state;
-    and_states(state0, state1);
-    if (state0.uncovovered_positions_count() || myBDD[procesed_node].state.shortest_path > restrictions.best_known_result) { continue; } //we have constant subtree
-
-    state0 = myBDD[procesed_node].state; //state for decision 0
-    state0.level++;
-    state1 = myBDD[procesed_node].state; //state for decision 1
-    state1.level++;
-    one_is_valid = cover_positions(state1, variables.current_variable_get()); //if return false, than we have to unify procesed_node with a node x_i=0 
-    search_it = new_layer_hashed.find(state0);
+    procesed_node.decision_index = variables.current_variable_get();
+    //state0 = procesed_node;
+    //state1 = can_be_covered_state;
+    //and_states(state0, state1);
+    //if (state0.uncovovered_positions_count() || procesed_node.shortest_path > restrictions.best_known_result) { continue; } //we have constant subtree
     
-    if (search_it != new_layer_hashed.end()){
-      to_match = search_it->second;
-      add_decision_edge_upadate_node(myBDD, procesed_node, to_match, 0);
-    } else {
-      new_layer_hashed[state0] = add_new_decision(myBDD,procesed_node,0,state0);
+    //set state x_i=0
+    state0 = procesed_node; //state for decision 0
+    state0.level++;
+    search_it = new_layer_hashed.find(state0);
+    if (search_it != new_layer_hashed.end()) {
+      //to_match = search_it->second;
+      search_it->second = min<size_t>(search_it->second, state0.shortest_path);
+      //add_decision_edge_upadate_node(myBDD, procesed_node, to_match, 0);
     }
+    else {
+      new_layer_hashed[state0] = state0.shortest_path;// add_new_decision(myBDD, procesed_node, 0, state0);
+    }
+    //set state x_i=1 and check if it is possible
+    state1 = procesed_node; //state for decision 1
+    state1.level++;
+    state1.shortest_path++;
+    one_is_valid = cover_positions(state1, variables.current_variable_get()); //if return false, than we have to unify procesed_node with a node x_i=0 
+    
+    
+    
     if (one_is_valid){
       search_it = new_layer_hashed.find(state1);
       if (search_it != new_layer_hashed.end()){
-        to_match = search_it->second;
-        add_decision_edge_upadate_node(myBDD, procesed_node, to_match, 1);
+        //to_match = search_it->second;
+        search_it->second = min<size_t>(search_it->second, procesed_node.shortest_path);
+        //add_decision_edge_upadate_node(myBDD, procesed_node, to_match, 1);
       } else {
-        new_layer_hashed[state1] = add_new_decision(myBDD,procesed_node,1,state1);
+        new_layer_hashed[state1] = state1.shortest_path;// add_new_decision(myBDD, procesed_node, 1, state1);
       }
     } else {
-      if (procesed_node) {//zbdd operation for nonroot
-        merge_clear_update(myBDD, new_layer_hashed, new_layer_hashed[state0], procesed_node);
+      //if (procesed_node) {//zbdd operation for nonroot
+        //merge_clear_update(myBDD, new_layer_hashed, new_layer_hashed[state0], procesed_node);
         //merge_nodes(myBDD, new_layer_hashed[state0], procesed_node);
-      }
+      //}
     }
   }
   current_layer.clear();
   for (const pair<state_T, size_t>& pa: new_layer_hashed){
-    current_layer.push_back(pa.second);
+    current_layer.push_back(pa.first);
+    current_layer.back().shortest_path = pa.second;
   }
   if (restrictions.max_level_width && restrictions.max_level_width < current_layer.size()) {
     if (restrictions.mode == 1) {
@@ -343,19 +361,27 @@ void process_layer(BDD_T& myBDD, vector<size_t>& current_layer, variablesDB_t& v
 
 
 
-size_t unify_last_layer(BDD_T& myBDD, vector<size_t> last_layer){ //in last layer there is 1 true node an all of the others are uncovered
-  size_t terminal = 0, best = myBDD[last_layer[0]].state.covered_s1.size();
-  for (const size_t& node : last_layer){
-    
-    if ((myBDD[node].state.uncovovered_positions_count() == 0) && best > myBDD[node].state.shortest_path){
-        cout << "Final node " << node << endl;
+//size_t unify_last_layer(BDD_T& myBDD, vector<size_t> last_layer){ //in last layer there is 1 true node an all of the others are uncovered
+size_t unify_last_layer(BDD_T& myBDD, vector<state_T> last_layer) { //in last layer there is 1 true node an all of the others are uncovered
+  state_T terminal=last_layer[0];
+  size_t best = last_layer[0].covered_s1.size();
+  vector<size_t> results;
+  for (const state_T& node : last_layer){
+    results.push_back(node.get_shortest_path());
+    if (best > node.get_shortest_path()){
+      
       terminal = node;
       
-      best = myBDD[node].state.shortest_path;
-    } 
+      best = node.get_shortest_path();
+      //cout << "best update " << best << endl;
+    }
   }
-  cout << "Smallest cover partition is " << myBDD[terminal].state.shortest_path << endl;
-  return myBDD[terminal].state.shortest_path;
+  //cout << "Smallest cover partition is " << best << endl;
+  //sort(results.begin(), results.end());
+  //for (auto c : results) cout << c << " ";
+  //cout << endl;
+  //terminal.print();
+  return best;
 };
 
 size_t min_cover(const vector<size_t>& input1, const vector<size_t>& input2, const restriction_t& restrictions){
@@ -365,17 +391,29 @@ size_t min_cover(const vector<size_t>& input1, const vector<size_t>& input2, con
   BDD_T myBDD;
   add_vertex(myBDD);
   myBDD[0].state = state_T(input_len);
-  vector<size_t> current_layer;
-  current_layer.push_back(0);
+  //vector<size_t> current_layer;
+  vector<state_T> current_layer;
+  //current_layer.push_back(0);
+  current_layer.push_back(state_T(input_len));
   variablesDB_t variables;
   variables.current_variable_reset();
   for (size_t k1 = 0; k1<input_len; ++k1){
     for (size_t k2 = 0; k2<input_len; ++k2){
       
       for (size_t t_len = 0 ; t_len < input_len - max<int>(k1,k2); ++t_len){
-        if (input1[k1 + t_len] != input2[k2 + t_len]) { break; }
+        if (input1[k1 + t_len] != input2[k2 + t_len] || t_len + 1  == input_len - max<int>(k1, k2)) { //break; 
+          if (t_len + 1 == input_len - max<int>(k1, k2)) ++t_len;
+          if (t_len > 0){
+            --t_len;
+            for (; t_len > 0; --t_len) {
+              variables.append_variable(variable_index_t(k1, k2, t_len, input1.size()));
+            }
+          }
+          break;
+        }
           //this is a valid block (k1,k2,t_len+1)
-          variables.append_variable(variable_index_t(k1,k2,t_len,input1.size()));
+          //if (t_len)
+          //  variables.append_variable(variable_index_t(k1,k2,t_len,input1.size()));
           //process_layer(myBDD, current_layer, k1, k2, t_len, restrict_width);
         }
       
@@ -449,15 +487,26 @@ int main(int argc, char ** argv)
   std::ifstream input_stream(".\\input\\random");
   //while (input_stream.good()){
     read_1_sequence(input1, input_stream);
-    //input1 = vector<size_t>(input1.begin(), input1.begin()+60);
+    input1 = vector<size_t>(input1.begin(), input1.begin()+50);
     input2 = input1;
     shuffle(input2.begin(),input2.end(), default_random_engine{});
   //}
   input_stream.close();
-  restriction_t restrictions(3000, input1.size(), 1);
-  restrictions.best_known_result = min_cover(input1, input2, restrictions);
-  restrictions.mode = 2;
-  cout << (input1 == input2) << ":" << min_cover(input1, input2, restrictions) << "/" << restrictions.best_known_result << endl;
+  restriction_t restrictions(1000, input1.size(), 1);
+  vector<size_t> results;
+  //for (int i = 1; i < 10; ++i) {
+    //restrictions.max_level_width = i * 1000;
+    //restrictions.best_known_result = min_cover(input1, input2, restrictions);
+    results.push_back(min_cover(input1, input2, restrictions));
+    restrictions.mode = 2;
+    results.push_back(min_cover(input1, input2, restrictions));
+  //}
+  for (auto r : results)
+    cout << r << ", " ;
+  cout << endl;
+  //restrictions.mode = 2;
+  //cout << restrictions.best_known_result << endl;
+  //cout << (input1 == input2) << ":" << min_cover(input1, input2, restrictions) << "/" << restrictions.best_known_result << endl;
   
   return 0;
 }
