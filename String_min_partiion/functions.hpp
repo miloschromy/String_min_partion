@@ -20,7 +20,8 @@ struct variable_index_t {
     k1 = pk1; k2 = pk2; t_length = pt_length; n = pn;
   }
   size_t get_index()const {
-    return k1 + n + k2 + 2 * n + t_length; //this is index of variable, which correspnds to level
+    return n-t_length;
+    //return k1 + n + k2 + 2 * n + t_length; //this is index of variable, which correspnds to level
   };
 };
 inline bool operator==(const variable_index_t& lhs, const variable_index_t& rhs) {

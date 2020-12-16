@@ -419,13 +419,13 @@ size_t min_cover(const vector<size_t>& input1, const vector<size_t>& input2, con
       
     }
   }
-  
+  variables.sort_vars();
   while (variables.current_variable_good()) {
-    cout << "Position " << variables.current_variable_get().k1 << ", " 
+    /*cout << "Position " << variables.current_variable_get().k1 << ", " 
                         << variables.current_variable_get().k2 << " with block of length " 
                         << variables.current_variable_get().t_length << " and letter "
                         << input1[variables.current_variable_get().k1 + variables.current_variable_get().t_length] << " frontier size " 
-                        << current_layer.size() << endl;
+                        << current_layer.size() << endl;*/
     process_layer(myBDD, current_layer, variables, restrictions);
     
     variables.current_variable_next();
@@ -443,7 +443,46 @@ size_t min_cover(const vector<size_t>& input1, const vector<size_t>& input2, con
   //return input_len;
 };
 
+void rearrange(vector<size_t>& input, const size_t& cuts_no) {
+  default_random_engine generator;
+  if (!cuts_no || cuts_no > 3*input.size()/4)
+    shuffle(input.begin(), input.end(), generator);
+  else {
+    uniform_int_distribution<int> d1(1, input.size()-1);
+    vector<size_t> cuts_vect;
+    vector<bool> where_to_cut(input.size(), 0);
+    while (cuts_vect.size() < cuts_no){
+      size_t rng_cut = d1(generator);
+      while (where_to_cut[rng_cut]){ rng_cut = d1(generator); }
+      cuts_vect.push_back(rng_cut);
+      where_to_cut[rng_cut] = 1;
+    }
+    cuts_vect.push_back(0);
+    cuts_vect.push_back(input.size());
+    sort(cuts_vect.begin(), cuts_vect.end());
+    vector<vector<size_t>> reaarange_cut;
+    vector<size_t> cuts_order;
+    for (size_t i = 0; i < cuts_vect.size()-1; ++i) {
+      reaarange_cut.push_back(vector<size_t>(input.begin() + cuts_vect[i], input.begin() + cuts_vect[i + 1]));
+      cuts_order.push_back(i);
+    }
+    shuffle(cuts_order.begin(), cuts_order.end(), generator);
+    for (size_t i = 0; i < cuts_order.size() - 1; ++i) {
+      if (cuts_order[i] + 1 == cuts_order[i + 1]) {
+        ++cuts_order[i];
+        --cuts_order[i + 1];
+      }
+    }
+    //shuffle(reaarange_cut.begin(), reaarange_cut.end(), generator);
+    input.clear();
+    for (size_t slice_index : cuts_order) {
+      input.insert(input.end(), reaarange_cut[slice_index].begin(), reaarange_cut[slice_index].end());
+    }
+  }
+}
+
 bool read_1_sequence(vector<size_t>& input1, ifstream& input_stream){
+  input1.clear();
   if(!input_stream.good()){
       std::cerr << "Data loading error.\n";
       return 0;
@@ -487,20 +526,29 @@ int main(int argc, char ** argv)
   std::ifstream input_stream(".\\input\\random");
   //while (input_stream.good()){
     read_1_sequence(input1, input_stream);
-    input1 = vector<size_t>(input1.begin(), input1.begin()+50);
+    input1 = vector<size_t>(input1.begin(), input1.begin()+100);
     input2 = input1;
-    shuffle(input2.begin(),input2.end(), default_random_engine{});
+    rearrange(input2, 1);
   //}
   input_stream.close();
   restriction_t restrictions(1000, input1.size(), 1);
   vector<size_t> results;
-  //for (int i = 1; i < 10; ++i) {
-    //restrictions.max_level_width = i * 1000;
-    //restrictions.best_known_result = min_cover(input1, input2, restrictions);
-    results.push_back(min_cover(input1, input2, restrictions));
-    restrictions.mode = 2;
-    results.push_back(min_cover(input1, input2, restrictions));
-  //}
+  for (int j = 1; j <= 40; ++j) {
+    input2 = input1;
+    rearrange(input2, j);
+    cout << "Reshuffled by " << j << " cuts. UB: ";
+    for (int i = 10; i <= 100; i += 10) {
+      restrictions.mode = 1;
+      restrictions.max_level_width = i * 100;
+      restrictions.best_known_result = min_cover(input1, input2, restrictions);
+      results.push_back(min_cover(input1, input2, restrictions));
+      cout << i * 100 << " width: " << results.back() << " cover size, ";
+      results.push_back(j);
+      //restrictions.mode = 2;
+      //results.push_back(min_cover(input1, input2, restrictions));
+    }
+    cout << endl;
+  }
   for (auto r : results)
     cout << r << ", " ;
   cout << endl;
